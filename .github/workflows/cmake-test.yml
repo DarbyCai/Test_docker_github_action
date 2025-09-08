@@ -1,0 +1,37 @@
+name: GTK CMake Multi-Platform Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-ubuntu:
+    runs-on: ubuntu-latest
+    name: Test Ubuntu
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test Ubuntu 22.04
+      run: |
+        docker build --build-arg UBUNTU_VERSION=22.04 -t test-ubuntu22 -f docker/Dockerfile.ubuntu .
+        docker run --rm test-ubuntu22
+        
+    - name: Test Ubuntu 20.04  
+      run: |
+        docker build --build-arg UBUNTU_VERSION=20.04 -t test-ubuntu20 -f docker/Dockerfile.ubuntu .
+        docker run --rm test-ubuntu20
+
+  test-rocky:
+    runs-on: ubuntu-latest
+    name: Test Rocky Linux
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test Rocky Linux 9
+      run: |
+        docker build --build-arg ROCKY_VERSION=9 -t test-rocky9 -f docker/Dockerfile.rocky .
+        docker run --rm test-rocky9

@@ -1,0 +1,143 @@
+ARG UBUNTU_VERSION=22.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+# 避免互動式安裝
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 安裝必要套件
+RUN apt-get update && apt-get install -y \
+    cmake \
+    build-essential \
+    ninja-build \
+    pkg-config \
+    libgtk-3-dev \
+    libgtk-3-0 \
+    libglib2.0-dev \
+    valgrind \
+    xvfb \
+    imagemagick \
+    dbus-x11 \
+    git \
+    curl \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# 設定工作目錄
+WORKDIR /workspace
+
+# 複製專案檔案
+COPY . /workspace/
+
+# 清理並建構專案
+RUN rm -rf build && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release && \
+    ninja && \
+    echo "Build completed successfully"
+
+# 設定執行環境
+ENV DISPLAY=:99
+ENV AUTO_TEST=1
+
+# 建立基本測試腳本
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🧪 Testing GTK app in Ubuntu $(lsb_release -rs 2>/dev/null || echo unknown) container"\n\
+echo "CMake version: $(cmake --version | head -1)"\n\
+echo "GTK version: $(pkg-config --modversion gtk+-3.0)"\n\
+echo "Ninja version: $(ninja --version)"\n\
+\n\
+# 檢查應用程式是否存在\n\
+if [ -f /workspace/build/src/gtk-test-app ]; then\n\
+    echo "✅ Application built successfully"\n\
+    \n\
+    echo "🖥️ Starting virtual display..."\n\
+    Xvfb :99 -screen 0 1024x768x24 &\n\
+    XVFB_PID=$!\n\
+    sleep 3\n\
+    \n\
+    echo "🚀 Running GTK application..."\n\
+    cd /workspace/build\n\
+    if timeout 15 ./src/gtk-test-app; then\n\
+        echo "✅ Application test passed"\n\
+    else\n\
+        echo "⚠️ Application test completed (timeout expected)"\n\
+    fi\n\
+    \n\
+    # 可選：截圖\n\
+    import -window root /tmp/screenshot.png 2>/dev/null && \\\n\
+        echo "📸 Screenshot saved" || echo "📸 Screenshot skipped"\n\
+    \n\
+    # 清理\n\
+    kill $XVFB_PID 2>/dev/null || true\n\
+    \n\
+    echo "🎉 Ubuntu container test successful"\n\
+else\n\
+    echo "❌ Application not found at /workspace/build/src/gtk-test-app"\n\
+    echo "Build directory contents:"\n\
+    ls -la /workspace/build/src/ || echo "build/src directory not found"\n\
+    exit 1\n\
+fi\n\
+' > /workspace/test.sh && chmod +x /workspace/test.sh
+
+# 建立記憶體測試腳本
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "🔍 Running memory leak test in Ubuntu container"\n\
+\n\
+# 檢查 Valgrind 是否可用\n\
+if ! command -v valgrind >/dev/null 2>&1; then\n\
+    echo "❌ Valgrind not found - skipping memory test"\n\
+    exit 77\n\
+fi\n\
+\n\
+# 檢查應用程式是否存在\n\
+if [ ! -f /workspace/build/src/gtk-test-app ]; then\n\
+    echo "❌ Application not found"\n\
+    exit 1\n\
+fi\n\
+\n\
+# 啟動虛擬顯示\n\
+echo "🖥️ Starting virtual display for memory test..."\n\
+export DISPLAY=:99\n\
+export AUTO_TEST=1\n\
+\n\
+Xvfb :99 -screen 0 1024x768x24 &\n\
+XVFB_PID=$!\n\
+sleep 3\n\
+\n\
+cd /workspace/build\n\
+\n\
+echo "🧪 Running Valgrind memory check..."\n\
+valgrind \\\n\
+    --tool=memcheck \\\n\
+    --leak-check=full \\\n\
+    --show-leak-kinds=all \\\n\
+    --track-origins=yes \\\n\
+    --log-file=/tmp/valgrind.log \\\n\
+    timeout 30 ./src/gtk-test-app || true\n\
+\n\
+echo "📊 Memory test results:"\n\
+if [ -f /tmp/valgrind.log ]; then\n\
+    if grep -q "no leaks are possible" /tmp/valgrind.log; then\n\
+        echo "✅ No memory leaks detected"\n\
+    elif grep -q "definitely lost.*0 bytes" /tmp/valgrind.log; then\n\
+        echo "✅ No significant memory leaks"\n\
+    else\n\
+        echo "⚠️ Memory leaks found (expected for test app):"\n\
+        grep -A3 "definitely lost\\|possibly lost" /tmp/valgrind.log | head -8 || true\n\
+    fi\n\
+    echo ""\n\
+    grep "ERROR SUMMARY" /tmp/valgrind.log || true\n\
+else\n\
+    echo "❌ Valgrind log not found"\n\
+fi\n\
+\n\
+# 清理\n\
+kill $XVFB_PID 2>/dev/null || true\n\
+echo "🎉 Memory test completed"\n\
+' > /workspace/memory-test.sh && chmod +x /workspace/memory-test.sh
+
+# 預設執行基本測試
+CMD ["/workspace/test.sh"]

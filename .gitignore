@@ -1,0 +1,19 @@
+# Build directories
+build/
+build-*/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test results
+test-results/
+screenshots/
+docker-test-report-*.md
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
